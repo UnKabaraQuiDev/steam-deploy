@@ -92,11 +92,12 @@ public class SteamDeployMojo extends AbstractMojo {
 			tempSteamScript = this.createSteamScript(finalGuard, effectiveBuildScript, cachedLogin);
 			this.runSteamCmd(tempSteamScript);
 		} catch (final Exception e) {
+			e.printStackTrace();
 			throw new MojoExecutionException("Steam deployment failed", e);
 		} finally {
-			if (tempSteamScript != null && tempSteamScript.exists() && !tempSteamScript.delete()) {
-				this.getLog().warn("Could not delete temp Steam script: " + tempSteamScript);
-			}
+//			if (tempSteamScript != null && tempSteamScript.exists() && !tempSteamScript.delete()) {
+//				this.getLog().warn("Could not delete temp Steam script: " + tempSteamScript);
+//			}
 		}
 
 		this.getLog().info("Steam deployment completed successfully");
@@ -232,10 +233,7 @@ public class SteamDeployMojo extends AbstractMojo {
 
 		final Path scriptPath = steamDir.resolve("steam-build.txt");
 		final File script = scriptPath.toFile();
-		script.deleteOnExit();
-
-		Files.setPosixFilePermissions(script.toPath(), Set.of(PosixFilePermission.OWNER_READ,
-				PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
+//		script.deleteOnExit();
 
 		try (final PrintWriter writer = new PrintWriter(new FileWriter(script, StandardCharsets.UTF_8))) {
 			writer.print("@ShutdownOnFailedCommand 1");
@@ -257,6 +255,9 @@ public class SteamDeployMojo extends AbstractMojo {
 			writer.println("run_app_build " + effectiveBuildScript.getAbsolutePath());
 			writer.println("quit");
 		}
+
+		Files.setPosixFilePermissions(script.toPath(), Set.of(PosixFilePermission.OWNER_READ,
+				PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
 
 		return script;
 	}

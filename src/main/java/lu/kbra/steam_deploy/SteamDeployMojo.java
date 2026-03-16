@@ -51,10 +51,16 @@ public class SteamDeployMojo extends AbstractMojo {
 	private File buildDirectory;
 
 	@Parameter(defaultValue = "false")
-	private final boolean filterVdfs = true;
+	private boolean usingUser = false;
 
 	@Parameter
-	private final Map<String, String> filters = new HashMap<>();
+	private String user;
+
+	@Parameter(defaultValue = "false")
+	private boolean filterVdfs = true;
+
+	@Parameter
+	private Map<String, String> filters = new HashMap<>();
 
 	@Parameter(defaultValue = "${project}", readonly = true)
 	private MavenProject session;
@@ -114,6 +120,9 @@ public class SteamDeployMojo extends AbstractMojo {
 			}
 			this.password = server.getPassword();
 		}
+
+		user = user == null || user.isBlank() ? null : user;
+		usingUser |= user != null;
 	}
 
 	private Server resolveServer() {
@@ -246,7 +255,10 @@ public class SteamDeployMojo extends AbstractMojo {
 	}
 
 	private void runSteamCmd(final File script) throws IOException, InterruptedException, MojoExecutionException {
-		final ProcessBuilder pb = new ProcessBuilder(this.steamcmdPath, "+runscript", script.getAbsolutePath());
+		final ProcessBuilder pb = usingUser
+				? new ProcessBuilder("sudo", "-n", "-u", user, this.steamcmdPath, "+runscript",
+						script.getAbsolutePath())
+				: new ProcessBuilder(this.steamcmdPath, "+runscript", script.getAbsolutePath());
 
 		pb.redirectErrorStream(true);
 //		pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
@@ -261,7 +273,9 @@ public class SteamDeployMojo extends AbstractMojo {
 	}
 
 	private boolean tryCachedLogin() throws IOException, InterruptedException {
-		final ProcessBuilder pb = new ProcessBuilder(this.steamcmdPath, "+login", this.username, "+quit");
+		final ProcessBuilder pb = usingUser
+				? new ProcessBuilder("sudo", "-n", "-u", user, this.steamcmdPath, "+login", this.username, "+quit")
+				: new ProcessBuilder(this.steamcmdPath, "+login", this.username, "+quit");
 
 		pb.redirectErrorStream(true);
 		final Process p = pb.start();

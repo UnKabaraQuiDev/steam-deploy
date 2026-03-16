@@ -11,7 +11,6 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
-import java.util.stream.Collectors;
 
 import org.apache.maven.plugin.AbstractMojo;
 import org.apache.maven.plugin.MojoExecutionException;
@@ -52,43 +51,47 @@ public class SteamDeployMojo extends AbstractMojo {
 	private File buildDirectory;
 
 	@Parameter(defaultValue = "false")
-	private boolean filterVdfs = true;
+	private final boolean filterVdfs = true;
 
 	@Parameter
-	private Map<String, String> filters = new HashMap<>();
+	private final Map<String, String> filters = new HashMap<>();
 
 	@Parameter(defaultValue = "${project}", readonly = true)
 	private MavenProject session;
 
 	@Override
 	public void execute() throws MojoExecutionException {
-		validateInputs();
+		this.validateInputs();
 
-		final String finalGuard = resolveGuardCode();
+		final String finalGuard = this.resolveGuardCode();
 
 		File tempSteamScript = null;
 		File effectiveBuildScript = this.buildScript;
 
-//		System.out.println("Using:\n" + filters.entrySet().stream().map(c -> c.getKey() + " = " + c.getValue())
-//				.collect(Collectors.joining("\n")));
-
 		try {
-			if (filterVdfs) {
-				effectiveBuildScript = prepareFilteredVdfs();
+			if (this.filterVdfs) {
+				effectiveBuildScript = this.prepareFilteredVdfs();
 			}
 
-			tempSteamScript = createSteamScript(finalGuard, effectiveBuildScript);
-			runSteamCmd(tempSteamScript);
+			final boolean cachedLogin = this.tryCachedLogin();
 
-		} catch (Exception e) {
+			if (cachedLogin) {
+				this.getLog().info("Using cached SteamCMD login");
+			} else {
+				this.getLog().info("Cached login not available, using password login");
+			}
+
+			tempSteamScript = this.createSteamScript(finalGuard, effectiveBuildScript, cachedLogin);
+			this.runSteamCmd(tempSteamScript);
+		} catch (final Exception e) {
 			throw new MojoExecutionException("Steam deployment failed", e);
 		} finally {
 			if (tempSteamScript != null && tempSteamScript.exists() && !tempSteamScript.delete()) {
-				getLog().warn("Could not delete temp Steam script: " + tempSteamScript);
+				this.getLog().warn("Could not delete temp Steam script: " + tempSteamScript);
 			}
 		}
 
-		getLog().info("Steam deployment completed successfully");
+		this.getLog().info("Steam deployment completed successfully");
 	}
 
 	private void validateInputs() throws MojoExecutionException {
@@ -96,28 +99,28 @@ public class SteamDeployMojo extends AbstractMojo {
 			throw new MojoExecutionException("Build script not found: " + this.buildScript);
 		}
 
-		if (username == null) {
-			Server server = resolveServer();
+		if (this.username == null) {
+			final Server server = this.resolveServer();
 			if (server == null || server.getUsername() == null) {
 				throw new MojoExecutionException("Server id not provided or invalid, cannot find username.");
 			}
-			username = server.getUsername();
+			this.username = server.getUsername();
 		}
 
-		if (password == null) {
-			Server server = resolveServer();
+		if (this.password == null) {
+			final Server server = this.resolveServer();
 			if (server == null || server.getPassword() == null) {
 				throw new MojoExecutionException("Server id not provided or invalid, cannot find password.");
 			}
-			password = server.getPassword();
+			this.password = server.getPassword();
 		}
 	}
 
 	private Server resolveServer() {
-		if (serverId == null || settings == null) {
+		if (this.serverId == null || this.settings == null) {
 			return null;
 		}
-		return settings.getServer(serverId);
+		return this.settings.getServer(this.serverId);
 	}
 
 	private String resolveGuardCode() {
@@ -140,15 +143,15 @@ public class SteamDeployMojo extends AbstractMojo {
 	 * Returns the filtered app_build file to use with SteamCMD.
 	 */
 	private File prepareFilteredVdfs() throws IOException, MojoExecutionException {
-		final Path targetSteamDir = buildDirectory.toPath().resolve("steam");
+		final Path targetSteamDir = this.buildDirectory.toPath().resolve("steam");
 		Files.createDirectories(targetSteamDir);
 
-		getLog().info("Filtering Steam VDF files into: " + targetSteamDir);
+		this.getLog().info("Filtering Steam VDF files into: " + targetSteamDir);
 
 		// Step 1: filter the main app build file
-		final Path filteredAppBuild = targetSteamDir.resolve(buildScript.getName());
-		String appBuildContent = Files.readString(buildScript.toPath(), StandardCharsets.UTF_8);
-		appBuildContent = replacePlaceholders(appBuildContent, buildFilterValues());
+		final Path filteredAppBuild = targetSteamDir.resolve(this.buildScript.getName());
+		String appBuildContent = Files.readString(this.buildScript.toPath(), StandardCharsets.UTF_8);
+		appBuildContent = this.replacePlaceholders(appBuildContent, this.buildFilterValues());
 		Files.writeString(filteredAppBuild, appBuildContent, StandardCharsets.UTF_8);
 
 		// Step 2: find referenced depot files and filter them too
@@ -159,7 +162,7 @@ public class SteamDeployMojo extends AbstractMojo {
 		while (matcher.find()) {
 			final String depotFileName = matcher.group(1);
 
-			final Path sourceDepot = buildScript.toPath().getParent().resolve(depotFileName);
+			final Path sourceDepot = this.buildScript.toPath().getParent().resolve(depotFileName);
 			final Path targetDepot = targetSteamDir.resolve(depotFileName);
 
 			if (!Files.exists(sourceDepot)) {
@@ -167,10 +170,10 @@ public class SteamDeployMojo extends AbstractMojo {
 			}
 
 			String depotContent = Files.readString(sourceDepot, StandardCharsets.UTF_8);
-			depotContent = replacePlaceholders(depotContent, buildFilterValues());
+			depotContent = this.replacePlaceholders(depotContent, this.buildFilterValues());
 			Files.writeString(targetDepot, depotContent, StandardCharsets.UTF_8);
 
-			getLog().info("Filtered depot VDF: " + targetDepot);
+			this.getLog().info("Filtered depot VDF: " + targetDepot);
 		}
 
 		return filteredAppBuild.toFile();
@@ -179,20 +182,21 @@ public class SteamDeployMojo extends AbstractMojo {
 	private Map<String, String> buildFilterValues() {
 		final Map<String, String> values = new HashMap<>();
 
-		if (filters != null) {
-			values.putAll(filters);
+		if (this.filters != null) {
+			values.putAll(this.filters);
 		}
 
-		values.putIfAbsent("project.basedir", session.getBasedir().getAbsolutePath());
-		values.putIfAbsent("project.build.directory", buildDirectory.getAbsolutePath());
-		values.putIfAbsent("project.version", session.getVersion());
-		values.putIfAbsent("project.artifactId", session.getArtifactId());
-		values.putIfAbsent("project.groupId", session.getGroupId());
+		values.putIfAbsent("project.basedir", this.session.getBasedir().getAbsolutePath());
+		values.putIfAbsent("project.build.directory", this.buildDirectory.getAbsolutePath());
+		values.putIfAbsent("project.version", this.session.getVersion());
+		values.putIfAbsent("project.artifactId", this.session.getArtifactId());
+		values.putIfAbsent("project.groupId", this.session.getGroupId());
 
 		return values;
 	}
 
-	private String replacePlaceholders(String content, Map<String, String> values) throws MojoExecutionException {
+	private String replacePlaceholders(final String content, final Map<String, String> values)
+			throws MojoExecutionException {
 		final Matcher matcher = PLACEHOLDER_PATTERN.matcher(content);
 		final StringBuffer result = new StringBuffer();
 
@@ -211,14 +215,26 @@ public class SteamDeployMojo extends AbstractMojo {
 		return result.toString();
 	}
 
-	private File createSteamScript(final String guard, final File effectiveBuildScript) throws IOException {
+	private File createSteamScript(final String guard, final File effectiveBuildScript, final boolean cachedLogin)
+			throws IOException {
+
 		final File script = Files.createTempFile("steam-build", ".txt").toFile();
+		script.deleteOnExit();
 
-		try (PrintWriter writer = new PrintWriter(new FileWriter(script, StandardCharsets.UTF_8))) {
-			writer.print("login " + this.username + " " + this.password);
+		try (final PrintWriter writer = new PrintWriter(new FileWriter(script, StandardCharsets.UTF_8))) {
+			writer.print("@ShutdownOnFailedCommand 1");
+			writer.println();
+			writer.print("@NoPromptForPassword 1");
+			writer.println();
 
-			if (guard != null) {
-				writer.print(" " + guard);
+			writer.print("login " + this.username);
+
+			if (!cachedLogin) {
+				writer.print(" " + this.password);
+
+				if (guard != null && !guard.isBlank()) {
+					writer.print(" " + guard);
+				}
 			}
 
 			writer.println();
@@ -232,7 +248,9 @@ public class SteamDeployMojo extends AbstractMojo {
 	private void runSteamCmd(final File script) throws IOException, InterruptedException, MojoExecutionException {
 		final ProcessBuilder pb = new ProcessBuilder(this.steamcmdPath, "+runscript", script.getAbsolutePath());
 
-		pb.inheritIO();
+		pb.redirectErrorStream(true);
+//		pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+		pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
 
 		final Process process = pb.start();
 		final int exitCode = process.waitFor();
@@ -240,6 +258,16 @@ public class SteamDeployMojo extends AbstractMojo {
 		if (exitCode != 0) {
 			throw new MojoExecutionException("SteamCMD exited with code: " + exitCode);
 		}
+	}
+
+	private boolean tryCachedLogin() throws IOException, InterruptedException {
+		final ProcessBuilder pb = new ProcessBuilder(this.steamcmdPath, "+login", this.username, "+quit");
+
+		pb.redirectErrorStream(true);
+		final Process p = pb.start();
+		final int code = p.waitFor();
+
+		return code == 0;
 	}
 
 }

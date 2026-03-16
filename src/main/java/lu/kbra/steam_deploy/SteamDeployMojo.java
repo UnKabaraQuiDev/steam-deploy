@@ -261,7 +261,7 @@ public class SteamDeployMojo extends AbstractMojo {
 				: new ProcessBuilder(this.steamcmdPath, "+runscript", script.getAbsolutePath());
 
 		pb.redirectErrorStream(true);
-//		pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+		pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
 		pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
 
 		final Process process = pb.start();
@@ -278,6 +278,8 @@ public class SteamDeployMojo extends AbstractMojo {
 				: new ProcessBuilder(this.steamcmdPath, "+login", this.username, "+quit");
 
 		pb.redirectErrorStream(true);
+		pb.redirectOutput(ProcessBuilder.Redirect.INHERIT);
+		pb.redirectInput(ProcessBuilder.Redirect.INHERIT);
 		final Process p = pb.start();
 		final int code = p.waitFor();
 

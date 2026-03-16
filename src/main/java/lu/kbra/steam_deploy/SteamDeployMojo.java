@@ -7,8 +7,10 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermission;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -145,12 +147,6 @@ public class SteamDeployMojo extends AbstractMojo {
 		return null;
 	}
 
-	/**
-	 * Copies and filters the main app_build VDF and any referenced depot VDFs into
-	 * target/steam.
-	 *
-	 * Returns the filtered app_build file to use with SteamCMD.
-	 */
 	private File prepareFilteredVdfs() throws IOException, MojoExecutionException {
 		final Path targetSteamDir = this.buildDirectory.toPath().resolve("steam");
 		Files.createDirectories(targetSteamDir);
@@ -162,6 +158,8 @@ public class SteamDeployMojo extends AbstractMojo {
 		String appBuildContent = Files.readString(this.buildScript.toPath(), StandardCharsets.UTF_8);
 		appBuildContent = this.replacePlaceholders(appBuildContent, this.buildFilterValues());
 		Files.writeString(filteredAppBuild, appBuildContent, StandardCharsets.UTF_8);
+		Files.setPosixFilePermissions(filteredAppBuild, Set.of(PosixFilePermission.OWNER_READ,
+				PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
 
 		// Step 2: find referenced depot files and filter them too
 		// Matches lines like: "1234561" "depot_build_1234561.vdf"
@@ -181,6 +179,8 @@ public class SteamDeployMojo extends AbstractMojo {
 			String depotContent = Files.readString(sourceDepot, StandardCharsets.UTF_8);
 			depotContent = this.replacePlaceholders(depotContent, this.buildFilterValues());
 			Files.writeString(targetDepot, depotContent, StandardCharsets.UTF_8);
+			Files.setPosixFilePermissions(targetDepot, Set.of(PosixFilePermission.OWNER_READ,
+					PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
 
 			this.getLog().info("Filtered depot VDF: " + targetDepot);
 		}
@@ -227,8 +227,15 @@ public class SteamDeployMojo extends AbstractMojo {
 	private File createSteamScript(final String guard, final File effectiveBuildScript, final boolean cachedLogin)
 			throws IOException {
 
-		final File script = Files.createTempFile("steam-build", ".txt").toFile();
+		final Path steamDir = this.buildDirectory.toPath().resolve("steam");
+		Files.createDirectories(steamDir);
+
+		final Path scriptPath = steamDir.resolve("steam-build.txt");
+		final File script = scriptPath.toFile();
 		script.deleteOnExit();
+
+		Files.setPosixFilePermissions(script.toPath(), Set.of(PosixFilePermission.OWNER_READ,
+				PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
 
 		try (final PrintWriter writer = new PrintWriter(new FileWriter(script, StandardCharsets.UTF_8))) {
 			writer.print("@ShutdownOnFailedCommand 1");

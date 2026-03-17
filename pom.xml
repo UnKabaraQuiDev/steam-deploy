@@ -5,7 +5,7 @@
 
 	<groupId>lu.kbra</groupId>
 	<artifactId>steam-deploy</artifactId>
-	<version>1.1.6-SNAPSHOT</version>
+	<version>1.1.6</version>
 	<packaging>maven-plugin</packaging>
 
 	<name>Steam Deploy Maven Plugin</name>

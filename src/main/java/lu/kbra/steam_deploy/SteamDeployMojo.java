@@ -55,6 +55,9 @@ public class SteamDeployMojo extends AbstractMojo {
 	@Parameter(defaultValue = "false")
 	private boolean usingUser = false;
 
+	@Parameter(defaultValue = "false")
+	private boolean defaultBranch = false;
+
 	@Parameter
 	private String user;
 
@@ -154,37 +157,44 @@ public class SteamDeployMojo extends AbstractMojo {
 
 		this.getLog().info("Filtering Steam VDF files into: " + targetSteamDir);
 
-		// Step 1: filter the main app build file
 		final Path filteredAppBuild = targetSteamDir.resolve(this.buildScript.getName());
 		String appBuildContent = Files.readString(this.buildScript.toPath(), StandardCharsets.UTF_8);
 		appBuildContent = this.replacePlaceholders(appBuildContent, this.buildFilterValues());
+
+		{
+			final Pattern depotPattern = Pattern.compile("\"\\d+\"\\s*\"([^\"]+\\.vdf)\"");
+			final Matcher matcher = depotPattern.matcher(appBuildContent);
+
+			while (matcher.find()) {
+				final String depotFileName = matcher.group(1);
+
+				final Path sourceDepot = this.buildScript.toPath().getParent().resolve(depotFileName);
+				final Path targetDepot = targetSteamDir.resolve(depotFileName);
+
+				if (!Files.exists(sourceDepot)) {
+					throw new MojoExecutionException("Referenced depot VDF not found: " + sourceDepot);
+				}
+
+				String depotContent = Files.readString(sourceDepot, StandardCharsets.UTF_8);
+				depotContent = this.replacePlaceholders(depotContent, this.buildFilterValues());
+				Files.writeString(targetDepot, depotContent, StandardCharsets.UTF_8);
+				Files.setPosixFilePermissions(targetDepot,
+						Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
+								PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
+
+				this.getLog().info("Filtered depot VDF: " + targetDepot);
+			}
+		}
+
+		if (defaultBranch) {
+			appBuildContent = appBuildContent.replaceAll("(?m)^\\t\"SetLive\"\\s+\".*?\"\\R?", "");
+
+			this.getLog().info("Removed SetLive as on default branch");
+		}
+
 		Files.writeString(filteredAppBuild, appBuildContent, StandardCharsets.UTF_8);
 		Files.setPosixFilePermissions(filteredAppBuild, Set.of(PosixFilePermission.OWNER_READ,
 				PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
-
-		// Step 2: find referenced depot files and filter them too
-		// Matches lines like: "1234561" "depot_build_1234561.vdf"
-		final Pattern depotPattern = Pattern.compile("\"\\d+\"\\s*\"([^\"]+\\.vdf)\"");
-		final Matcher matcher = depotPattern.matcher(appBuildContent);
-
-		while (matcher.find()) {
-			final String depotFileName = matcher.group(1);
-
-			final Path sourceDepot = this.buildScript.toPath().getParent().resolve(depotFileName);
-			final Path targetDepot = targetSteamDir.resolve(depotFileName);
-
-			if (!Files.exists(sourceDepot)) {
-				throw new MojoExecutionException("Referenced depot VDF not found: " + sourceDepot);
-			}
-
-			String depotContent = Files.readString(sourceDepot, StandardCharsets.UTF_8);
-			depotContent = this.replacePlaceholders(depotContent, this.buildFilterValues());
-			Files.writeString(targetDepot, depotContent, StandardCharsets.UTF_8);
-			Files.setPosixFilePermissions(targetDepot, Set.of(PosixFilePermission.OWNER_READ,
-					PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
-
-			this.getLog().info("Filtered depot VDF: " + targetDepot);
-		}
 
 		return filteredAppBuild.toFile();
 	}

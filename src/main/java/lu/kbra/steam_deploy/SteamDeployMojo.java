@@ -7,6 +7,7 @@ import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermission;
 import java.util.HashMap;
 import java.util.Map;
@@ -56,16 +57,16 @@ public class SteamDeployMojo extends AbstractMojo {
 	private boolean usingUser = false;
 
 	@Parameter(defaultValue = "false")
-	private boolean defaultBranch = false;
+	private final boolean defaultBranch = false;
 
 	@Parameter
 	private String user;
 
 	@Parameter(defaultValue = "false")
-	private boolean filterVdfs = true;
+	private final boolean filterVdfs = true;
 
 	@Parameter
-	private Map<String, String> filters = new HashMap<>();
+	private final Map<String, String> filters = new HashMap<>();
 
 	@Parameter(defaultValue = "${project}", readonly = true)
 	private MavenProject session;
@@ -127,8 +128,8 @@ public class SteamDeployMojo extends AbstractMojo {
 			this.password = server.getPassword();
 		}
 
-		user = user == null || user.isBlank() ? null : user;
-		usingUser |= user != null;
+		this.user = this.user == null || this.user.isBlank() ? null : this.user;
+		this.usingUser |= this.user != null;
 	}
 
 	private Server resolveServer() {
@@ -178,23 +179,35 @@ public class SteamDeployMojo extends AbstractMojo {
 				String depotContent = Files.readString(sourceDepot, StandardCharsets.UTF_8);
 				depotContent = this.replacePlaceholders(depotContent, this.buildFilterValues());
 				Files.writeString(targetDepot, depotContent, StandardCharsets.UTF_8);
-				Files.setPosixFilePermissions(targetDepot,
-						Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
-								PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
+				if (targetDepot.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+					Files.setPosixFilePermissions(targetDepot,
+							Set.of(PosixFilePermission.OWNER_READ, PosixFilePermission.OWNER_WRITE,
+									PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
+				} else {
+					final File f = targetDepot.toFile();
+					f.setReadable(true, true);
+					f.setWritable(true, true);
+				}
 
 				this.getLog().info("Filtered depot VDF: " + targetDepot);
 			}
 		}
 
-		if (defaultBranch) {
+		if (this.defaultBranch) {
 			appBuildContent = appBuildContent.replaceAll("(?m)^\\t\"SetLive\"\\s+\".*?\"\\R?", "");
 
 			this.getLog().info("Removed SetLive as on default branch");
 		}
 
 		Files.writeString(filteredAppBuild, appBuildContent, StandardCharsets.UTF_8);
-		Files.setPosixFilePermissions(filteredAppBuild, Set.of(PosixFilePermission.OWNER_READ,
-				PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
+		if (filteredAppBuild.getFileSystem().supportedFileAttributeViews().contains("posix")) {
+			Files.setPosixFilePermissions(filteredAppBuild, Set.of(PosixFilePermission.OWNER_READ,
+					PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
+		} else {
+			final File f = filteredAppBuild.toFile();
+			f.setReadable(true, false);
+			f.setWritable(true, false);
+		}
 
 		return filteredAppBuild.toFile();
 	}
@@ -266,15 +279,20 @@ public class SteamDeployMojo extends AbstractMojo {
 			writer.println("quit");
 		}
 
-		Files.setPosixFilePermissions(script.toPath(), Set.of(PosixFilePermission.OWNER_READ,
-				PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
+		if (Paths.get(script.getPath()).getFileSystem().supportedFileAttributeViews().contains("posix")) {
+			Files.setPosixFilePermissions(script.toPath(), Set.of(PosixFilePermission.OWNER_READ,
+					PosixFilePermission.OWNER_WRITE, PosixFilePermission.GROUP_READ, PosixFilePermission.OTHERS_READ));
+		} else {
+			script.setReadable(true, false);
+			script.setWritable(true, false);
+		}
 
 		return script;
 	}
 
 	private void runSteamCmd(final File script) throws IOException, InterruptedException, MojoExecutionException {
-		final ProcessBuilder pb = usingUser
-				? new ProcessBuilder("sudo", "-n", "-u", user, this.steamcmdPath, "+runscript",
+		final ProcessBuilder pb = this.usingUser
+				? new ProcessBuilder("sudo", "-n", "-u", this.user, this.steamcmdPath, "+runscript",
 						script.getAbsolutePath())
 				: new ProcessBuilder(this.steamcmdPath, "+runscript", script.getAbsolutePath());
 
@@ -291,8 +309,8 @@ public class SteamDeployMojo extends AbstractMojo {
 	}
 
 	private boolean tryCachedLogin() throws IOException, InterruptedException {
-		final ProcessBuilder pb = usingUser
-				? new ProcessBuilder("sudo", "-n", "-u", user, this.steamcmdPath, "+login", this.username, "+quit")
+		final ProcessBuilder pb = this.usingUser
+				? new ProcessBuilder("sudo", "-n", "-u", this.user, this.steamcmdPath, "+login", this.username, "+quit")
 				: new ProcessBuilder(this.steamcmdPath, "+login", this.username, "+quit");
 
 		pb.redirectErrorStream(true);
